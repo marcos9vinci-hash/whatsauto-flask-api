@@ -12,9 +12,9 @@ app = Flask(__name__)
 
 # --- Configurações do Google Calendar ---
 # ID do seu calendário principal (geralmente seu e-mail do Google)
-CALENDAR_ID = 'marcos9vinciestudos@gmail.com' # <--- CORRIGIDO PARA O SEU E-MAIL REAL
+CALENDAR_ID = 'marcos9vinciestudos@gmail.com' 
 # E-mail da sua conta de serviço (o "client_email" do seu arquivo JSON de credenciais)
-SERVICE_ACCOUNT_EMAIL = 'we-calendar-sa@whatsauto-46281.iam.gserviceaccount.com' # <--- CONFIRME ESTE E-MAIL
+SERVICE_ACCOUNT_EMAIL = 'we-calendar-sa@whatsauto-46281.iam.gserviceaccount.com' 
 # Fuso horário para os eventos do calendário (São Paulo, Brasil)
 TIME_ZONE = 'America/Sao_Paulo' 
 
@@ -38,7 +38,6 @@ try:
 
 except Exception as e:
     print(f"ERRO CRÍTICO ao inicializar o serviço do Google Calendar: {e}", file=sys.stderr)
-    # Define como None para indicar que o serviço não está disponível em caso de falha
     calendar_service = None 
 
 # --- Rota Padrão da API ---
@@ -55,18 +54,33 @@ def webhook():
         content_type = request.headers.get('Content-Type')
         print("Content-Type da requisição:", content_type, file=sys.stderr)
 
-        if content_type == 'application/json':
-            # Se o Content-Type é JSON, usa request.json para parsear
-            data = request.json
-            if data is None:
-                print("ERRO: Requisição JSON vazia ou inválida.", file=sys.stderr)
-                return jsonify({"error": "Corpo da requisição JSON inválido ou vazio"}), 400
-            print("Dados parseados como JSON:", data, file=sys.stderr)
+        data = {}
+        if content_type and content_type.startswith('application/json'): # Verifica se começa com, para pegar application/json; charset=UTF-8 também
+            # --- Adicionado para depuração ---
+            raw_json_data = request.data.decode('utf-8', 'ignore')
+            print("Corpo da requisição JSON (RAW):", raw_json_data, file=sys.stderr)
+            # --- Fim da depuração ---
+
+            try:
+                data = request.json # Tenta parsear como JSON
+                if data is None:
+                    print("ERRO: request.json retornou None. JSON pode estar vazio ou malformado.", file=sys.stderr)
+                    # Se request.json for None, o corpo não era um JSON válido
+                    return jsonify({"error": "Corpo da requisição JSON inválido ou vazio"}), 400
+                print("Dados parseados como JSON (via request.json):", data, file=sys.stderr)
+            except Exception as json_e:
+                print(f"ERRO ao parsear JSON com request.json: {json_e}", file=sys.stderr)
+                # Tenta parsear manualmente se request.json falhar, como fallback extremo
+                try:
+                    data = json.loads(raw_json_data)
+                    print("Dados parseados manualmente via json.loads (fallback):", data, file=sys.stderr)
+                except Exception as fallback_e:
+                    print(f"ERRO CRÍTICO: Falha no parseamento JSON automático e manual: {fallback_e}", file=sys.stderr)
+                    return jsonify({"error": "Corpo da requisição JSON inválido"}), 400
         else:
             # Caso contrário (ex: application/x-www-form-urlencoded), tenta o parseamento manual de key=value,key=value
             raw_data = request.data.decode('utf-8', 'ignore')
             print("Dados brutos da requisição (decodificado, não-JSON):", raw_data, file=sys.stderr)
-            data = {}
             pairs = raw_data.split(',')
             for pair in pairs:
                 if '=' in pair:
@@ -76,24 +90,21 @@ def webhook():
                     data[key] = value
             print("Dados parseados manualmente (não-JSON):", data, file=sys.stderr)
 
-        # Extrai informações dos dados parseados (funciona para JSON ou manual)
+        # Extrai informações dos dados parseados
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        # Pega o conteúdo da mensagem do campo 'message' ou 'Message' (para maior compatibilidade)
-        message_content = data.get("message", data.get("Message", "Sem mensagem")) 
+        message_content = data.get("message", data.get("Message", "Sem mensagem")) # Tenta 'message' ou 'Message'
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
 
         print(f"Mensagem recebida de {sender} ({phone}) no app {app_name} (Grupo: {group_name}): {message_content}", file=sys.stderr)
 
-        reply_text = "" # Variável para armazenar a resposta da API
+        reply_text = "" 
 
         # --- Lógica de Resposta e Agendamento ---
-        # Verifica se a mensagem contém "agendar" e "reuniao" (sem til para maior compatibilidade com entrada do Watsauto)
         if "agendar" in message_content.lower() and "reuniao" in message_content.lower():
             if calendar_service:
                 try:
-                    # Define o tempo de início e fim do evento (ex: daqui a 1 hora, duração de 30 minutos)
                     start_time = datetime.now() + timedelta(hours=1)
                     end_time = start_time + timedelta(minutes=30)
                     
@@ -109,19 +120,17 @@ def webhook():
                             'timeZone': TIME_ZONE,
                         },
                         'attendees': [
-                            {'email': SERVICE_ACCOUNT_EMAIL} # Adiciona a conta de serviço como participante
-                            # Você pode adicionar outros emails aqui, ex: {'email': 'outro.email@example.com'}
+                            {'email': SERVICE_ACCOUNT_EMAIL}
                         ],
                         'reminders': {
                             'useDefault': False,
                             'overrides': [
-                                {'method': 'email', 'minutes': 24 * 60}, # Lembrete por e-mail 24 horas antes
-                                {'method': 'popup', 'minutes': 10},    # Lembrete pop-up 10 minutos antes
+                                {'method': 'email', 'minutes': 24 * 60},
+                                {'method': 'popup', 'minutes': 10},
                             ],
                         },
                     }
                     
-                    # Insere o evento no calendário especificado
                     created_event = calendar_service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
                     print(f"Evento criado: {created_event.get('htmlLink')}", file=sys.stderr)
                     reply_text = f"Reunião agendada com sucesso! Veja aqui: {created_event.get('htmlLink')}"
@@ -132,13 +141,11 @@ def webhook():
             else:
                 reply_text = "Não foi possível agendar. O serviço do Google Calendar não foi inicializado corretamente."
         
-        # Respostas para outras mensagens simples
         elif "olá" in message_content.lower():
             reply_text = "Olá! Como posso ajudar você hoje?"
         elif "tudo bem" in message_content.lower():
             reply_text = "Estou bem, obrigado! E você?"
         else:
-            # Resposta padrão para mensagens não reconhecidas
             reply_text = f"Recebi sua mensagem: '{message_content}'. No momento, só respondo a 'olá', 'tudo bem' e posso tentar 'agendar reunião'."
 
         print(f"Respondendo com: {reply_text}", file=sys.stderr)
@@ -149,6 +156,5 @@ def webhook():
         error_details = str(e)
         return jsonify({"error": "Erro interno do servidor ao processar mensagem", "details": error_details}), 500
 
-# Esta linha é importante para que o Vercel inicie sua aplicação Flask
 if __name__ == '__main__':
     app.run(debug=True)
