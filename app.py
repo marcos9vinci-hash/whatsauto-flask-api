@@ -55,41 +55,38 @@ def webhook():
         print("Content-Type da requisição:", content_type, file=sys.stderr)
 
         data = {}
-        if content_type and content_type.startswith('application/json'):
-            # --- Adicionado para depuração ---
-            raw_json_data = request.data.decode('utf-8', 'ignore')
-            print("Corpo da requisição JSON (RAW):", raw_json_data, file=sys.stderr)
-            # --- Fim da depuração ---
+        # Decodifica os dados brutos da requisição
+        raw_data = request.data.decode('utf-8', 'ignore')
+        print("Corpo da requisição (RAW):", raw_data, file=sys.stderr) # Alterado de JSON (RAW) para apenas (RAW)
 
+        # Adaptação para o formato app=WhatsAuto,sender=WhatsAuto app,message=Mensagem de teste
+        # Independentemente do Content-Type, tentamos parsear este formato agora.
+        pairs = raw_data.split(',')
+        for pair in pairs:
+            if '=' in pair:
+                key, value = pair.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                data[key] = value
+        
+        print("Dados parseados manualmente (formato chave=valor):", data, file=sys.stderr)
+
+        # Se o Content-Type for application/json, ainda podemos tentar request.json como fallback
+        if content_type and content_type.startswith('application/json'):
             try:
-                data = request.json
-                if data is None:
-                    print("ERRO: request.json retornou None. JSON pode estar vazio ou malformado.", file=sys.stderr)
-                    return jsonify({"error": "Corpo da requisição JSON inválido ou vazio"}), 400
-                print("Dados parseados como JSON (via request.json):", data, file=sys.stderr)
-            except Exception as json_e:
-                print(f"ERRO ao parsear JSON com request.json: {json_e}", file=sys.stderr)
-                try:
-                    data = json.loads(raw_json_data)
-                    print("Dados parseados manualmente via json.loads (fallback):", data, file=sys.stderr)
-                except Exception as fallback_e:
-                    print(f"ERRO CRÍTICO: Falha no parseamento JSON automático e manual: {fallback_e}", file=sys.stderr)
-                    return jsonify({"error": "Corpo da requisição JSON inválido"}), 400
-        else:
-            raw_data = request.data.decode('utf-8', 'ignore')
-            print("Dados brutos da requisição (decodificado, não-JSON):", raw_data, file=sys.stderr)
-            pairs = raw_data.split(',')
-            for pair in pairs:
-                if '=' in pair:
-                    key, value = pair.split('=', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    data[key] = value
-            print("Dados parseados manualmente (não-JSON):", data, file=sys.stderr)
+                json_data_from_flask = request.json
+                if json_data_from_flask:
+                    print("Dados parseados via request.json (se JSON válido foi enviado):", json_data_from_flask, file=sys.stderr)
+                    # Preferimos os dados do request.json se estiverem presentes e válidos
+                    # (Embora o log RAW mostre que não é JSON agora, mantemos como robustez)
+                    data.update(json_data_from_flask) 
+            except Exception as e_json_parse:
+                print(f"Aviso: request.json falhou ao parsear JSON, mas os dados brutos foram processados. {e_json_parse}", file=sys.stderr)
+
 
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        message_content = data.get("message", data.get("Message", "Sem mensagem"))
+        message_content = data.get("message", data.get("Message", "Sem mensagem")) # Verifica 'message' e 'Message'
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
 
