@@ -3,7 +3,7 @@ import sys
 import os
 import json
 from datetime import datetime, timedelta
-from urllib.parse import parse_qs, unquote # Importa parse_qs e unquote
+from urllib.parse import parse_qs, unquote # Certifique-se de que unquote está aqui
 
 # Importações para Google Calendar API
 from google.oauth2 import service_account
@@ -60,7 +60,6 @@ def webhook():
         raw_data = request.data.decode('utf-8', 'ignore')
         print("Corpo da requisição (RAW):", raw_data, file=sys.stderr)
 
-        # --- NOVA LÓGICA DE PARSING ---
         # Parseia a string como uma query string de URL (ex: a=1&b=2)
         parsed_data = parse_qs(raw_data)
         
@@ -68,16 +67,14 @@ def webhook():
         # Transformamos em um dicionário simples, pegando o primeiro valor de cada lista
         for key, value_list in parsed_data.items():
             if value_list: # Garante que a lista não está vazia
-                # Decodifica o valor (ex: %C3%A3 para ã)
-                data[key] = unquote(value_list[0])
+                # Decodifica o valor (ex: %C3%A3 para ã) e remove espaços em branco extras
+                data[key] = unquote(value_list[0]).strip()
             else:
                 data[key] = "" # Caso a chave exista mas sem valor
 
         print("Dicionário 'data' após parsing urllib.parse.qs:", data, file=sys.stderr)
-        # --- FIM DA NOVA LÓGICA ---
 
         # Se o Content-Type for application/json, ainda podemos tentar request.json como fallback
-        # (Isso é mais por robustez, pois o Watsauto parece não enviar JSON aqui)
         if content_type and content_type.startswith('application/json'):
             try:
                 json_data_from_flask = request.json
@@ -90,17 +87,21 @@ def webhook():
 
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        # Ajustado para pegar o número diretamente se necessário, ou usar "Desconhecido"
         phone = data.get("phone", "Desconhecido") 
-        # A mensagem agora deve vir do 'message' chave, com % decodificado
-        message_content = data.get("message", "Sem mensagem") 
+        
+        # --- MUDANÇA AQUI: Obtendo message_content de forma mais direta e garantindo .strip() ---
+        message_content = data.get("message", "").strip() 
+        # Se por algum motivo 'message' não existir ou for vazio, message_content será uma string vazia.
+        # Isso evita a string literal "Sem mensagem" antes do if/else.
+
         group_name = data.get("group_name", "Não em grupo")
 
-        print(f"message_content final: '{message_content}'", file=sys.stderr)
+        print(f"message_content final (após strip): '{message_content}'", file=sys.stderr)
         print(f"Mensagem recebida de {sender} ({phone}) no app {app_name} (Grupo: {group_name}): {message_content}", file=sys.stderr)
 
         reply_text = "" 
 
+        # --- AQUI ESTÁ A LÓGICA QUE PRECISAMOS CONFIRMAR QUE FUNCIONA ---
         if "agendar" in message_content.lower() and "reuniao" in message_content.lower():
             if calendar_service:
                 try:
@@ -145,7 +146,11 @@ def webhook():
         elif "tudo bem" in message_content.lower():
             reply_text = "Estou bem, obrigado! E você?"
         else:
-            reply_text = f"Recebi sua mensagem: '{message_content}'. No momento, só respondo a 'olá', 'tudo bem' e posso tentar 'agendar reunião'."
+            # Se message_content for vazio (tipo, só enviou um sticker ou algo sem texto)
+            if not message_content: 
+                reply_text = "Recebi sua mensagem, mas não consegui extrair o texto. Por favor, envie uma mensagem de texto."
+            else:
+                reply_text = f"Recebi sua mensagem: '{message_content}'. No momento, só respondo a 'olá', 'tudo bem' e posso tentar 'agendar reunião'."
 
         print(f"Respondendo com: {reply_text}", file=sys.stderr)
         return jsonify({"reply": reply_text})
