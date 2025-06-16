@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify
 import sys
-import os # Importar para acessar variáveis de ambiente
-import json # Importar para decodificar o JSON das credenciais
-from datetime import datetime, timedelta # Para lidar com datas e horas
+import os
+import json
+from datetime import datetime, timedelta
 
 # Importações para Google Calendar API
 from google.oauth2 import service_account
@@ -10,19 +10,26 @@ from googleapiclient.discovery import build
 
 app = Flask(__name__)
 
-# --- Inicialização do Google Calendar Service (fora da rota) ---
-# Isso será executado uma vez quando a aplicação iniciar
+# --- Configurações do Google Calendar ---
+# ID do seu calendário principal (geralmente seu e-mail do Google)
+CALENDAR_ID = 'marcos9vinciestudos@gmail.com' # <--- CORRIGIDO PARA O SEU E-MAIL REAL
+# E-mail da sua conta de serviço (o "client_email" do seu arquivo JSON de credenciais)
+SERVICE_ACCOUNT_EMAIL = 'we-calendar-sa@whatsauto-46281.iam.gserviceaccount.com' # <--- CONFIRME ESTE E-MAIL
+# Fuso horário para os eventos do calendário (São Paulo, Brasil)
+TIME_ZONE = 'America/Sao_Paulo' 
+
+# --- Inicialização do Google Calendar Service (executado uma vez ao iniciar a aplicação) ---
+calendar_service = None
 try:
-    # Carrega as credenciais da variável de ambiente
+    # Carrega as credenciais da variável de ambiente GOOGLE_APPLICATION_CREDENTIALS_JSON
     creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if not creds_json:
-        print("ERRO: Variável de ambiente GOOGLE_APPLICATION_CREDENTIALS_JSON não encontrada!", file=sys.stderr)
-        calendar_service = None # Define como None se as credenciais não estiverem presentes
+        print("ERRO: Variável de ambiente GOOGLE_APPLICATION_CREDENTIALS_JSON não encontrada! Agendamento desativado.", file=sys.stderr)
     else:
-        # Decodifica a string JSON para um dicionário
+        # Decodifica a string JSON para um dicionário Python
         info = json.loads(creds_json)
         
-        # Cria as credenciais de serviço
+        # Cria as credenciais de serviço a partir do dicionário
         credentials = service_account.Credentials.from_service_account_info(info)
         
         # Constrói o serviço da API do Google Calendar
@@ -30,61 +37,61 @@ try:
         print("Serviço do Google Calendar inicializado com sucesso.", file=sys.stderr)
 
 except Exception as e:
-    print(f"ERRO ao inicializar o serviço do Google Calendar: {e}", file=sys.stderr)
-    calendar_service = None # Define como None em caso de erro na inicialização
-# --- Fim da Inicialização ---
+    print(f"ERRO CRÍTICO ao inicializar o serviço do Google Calendar: {e}", file=sys.stderr)
+    # Define como None para indicar que o serviço não está disponível em caso de falha
+    calendar_service = None 
 
-
+# --- Rota Padrão da API ---
 @app.route('/')
 def home():
     return "API do Whatsauto rodando! Ponto de entrada padrão."
 
+# --- Webhook para receber mensagens do Watsauto ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    print("Iniciando processamento do webhook para formato customizado...", file=sys.stderr)
+    print("Iniciando processamento do webhook...", file=sys.stderr)
     print("Content-Type da requisição:", request.headers.get('Content-Type'), file=sys.stderr)
 
     try:
+        # Decodifica os dados brutos da requisição (espera formato 'chave=valor,chave=valor')
         raw_data = request.data.decode('utf-8', 'ignore')
         print("Dados brutos da requisição (decodificado):", raw_data, file=sys.stderr)
 
+        # Parseia manualmente os dados em um dicionário
         data = {}
-        pairs = raw_data.split(',')
-
+        pairs = raw_data.split(',') # Divide a string por vírgulas para obter pares
         for pair in pairs:
             if '=' in pair:
-                key, value = pair.split('=', 1)
-                key = key.strip()
-                value = value.strip()
+                key, value = pair.split('=', 1) # Divide cada par pelo primeiro '='
+                key = key.strip() # Remove espaços em branco da chave
+                value = value.strip() # Remove espaços em branco do valor
                 data[key] = value
 
         print("Dados parseados manualmente:", data, file=sys.stderr)
 
+        # Extrai informações dos dados parseados
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        message_content = data.get("message", "Sem mensagem")
+        message_content = data.get("message", "Sem mensagem") # 'message' agora está vindo corretamente
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
 
         print(f"Mensagem recebida de {sender} ({phone}) no app {app_name} (Grupo: {group_name}): {message_content}", file=sys.stderr)
 
-        reply_text = "" # Inicializa a resposta
+        reply_text = "" # Variável para armazenar a resposta da API
 
-        # --- Lógica para Agendamento de Eventos ---
-        # Exemplo Simples: Se a mensagem contiver "agendar" e "reunião"
-        if "agendar" in message_content.lower() and "reunião" in message_content.lower():
+        # --- Lógica de Resposta e Agendamento ---
+        # Verifica se a mensagem contém "agendar" e "reuniao" (sem til para maior compatibilidade com entrada do Watsauto)
+        if "agendar" in message_content.lower() and "reuniao" in message_content.lower():
             if calendar_service:
                 try:
-                    # Definir um fuso horário para o evento (importante!)
-                    TIME_ZONE = 'America/Sao_Paulo' # Ajuste conforme sua região
-
-                    # Exemplo: Agendar para daqui a 1 hora e durar 30 minutos
+                    # Define o tempo de início e fim do evento (ex: daqui a 1 hora, duração de 30 minutos)
                     start_time = datetime.now() + timedelta(hours=1)
                     end_time = start_time + timedelta(minutes=30)
                     
                     event = {
                         'summary': f'Reunião agendada via WhatsAuto com {sender}',
-                        'description': message_content,
+                        'description': f'Mensagem original: {message_content}',
                         'start': {
                             'dateTime': start_time.isoformat(),
                             'timeZone': TIME_ZONE,
@@ -94,40 +101,36 @@ def webhook():
                             'timeZone': TIME_ZONE,
                         },
                         'attendees': [
-                            # Adicione convidados se necessário, ex: {'email': 'marcosviniciusdvincistudios@gmail.com'},
-                            # Se você quer que a conta de serviço se adicione
-                            {'email': 'we-calendar-sa@whatsauto-46281.iam.gserviceaccount.com'} # O email da sua conta de serviço
+                            {'email': SERVICE_ACCOUNT_EMAIL} # Adiciona a conta de serviço como participante
+                            # Você pode adicionar outros emails aqui, ex: {'email': 'outro.email@example.com'}
                         ],
                         'reminders': {
                             'useDefault': False,
                             'overrides': [
-                                {'method': 'email', 'minutes': 24 * 60}, # 24 horas antes
-                                {'method': 'popup', 'minutes': 10},    # 10 minutos antes
+                                {'method': 'email', 'minutes': 24 * 60}, # Lembrete por e-mail 24 horas antes
+                                {'method': 'popup', 'minutes': 10},    # Lembrete pop-up 10 minutos antes
                             ],
                         },
                     }
                     
-                    # ID do calendário onde o evento será criado
-                    # Você pode obter isso nas configurações do seu Google Calendar,
-                    # geralmente é o seu próprio e-mail (para o calendário principal)
-                    calendar_id = 'marcosviniciusdvincistudios@gmail.com' # SEU E-MAIL DO GOOGLE
-
-                    created_event = calendar_service.events().insert(calendarId=calendar_id, body=event).execute()
+                    # Insere o evento no calendário especificado
+                    created_event = calendar_service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
                     print(f"Evento criado: {created_event.get('htmlLink')}", file=sys.stderr)
                     reply_text = f"Reunião agendada com sucesso! Veja aqui: {created_event.get('htmlLink')}"
                     
                 except Exception as calendar_e:
                     print(f"ERRO ao agendar no Google Calendar: {calendar_e}", file=sys.stderr)
-                    reply_text = f"Ocorreu um erro ao agendar a reunião: {calendar_e}"
+                    reply_text = f"Ocorreu um erro ao agendar a reunião: {calendar_e}. Por favor, verifique as permissões do calendário e o ID."
             else:
-                reply_text = "Não foi possível agendar. Serviço do Google Calendar não inicializado."
-        # --- Fim da Lógica de Agendamento ---
+                reply_text = "Não foi possível agendar. O serviço do Google Calendar não foi inicializado corretamente."
         
+        # Respostas para outras mensagens simples
         elif "olá" in message_content.lower():
             reply_text = "Olá! Como posso ajudar você hoje?"
         elif "tudo bem" in message_content.lower():
             reply_text = "Estou bem, obrigado! E você?"
         else:
+            # Resposta padrão para mensagens não reconhecidas
             reply_text = f"Recebi sua mensagem: '{message_content}'. No momento, só respondo a 'olá', 'tudo bem' e posso tentar 'agendar reunião'."
 
         print(f"Respondendo com: {reply_text}", file=sys.stderr)
@@ -137,3 +140,7 @@ def webhook():
         print(f"ERRO CRÍTICO NO WEBHOOK (exceção geral): {e}", file=sys.stderr)
         error_details = str(e)
         return jsonify({"error": "Erro interno do servidor ao processar mensagem", "details": error_details}), 500
+
+# Esta linha é importante para que o Vercel inicie sua aplicação Flask
+if __name__ == '__main__':
+    app.run(debug=True)
