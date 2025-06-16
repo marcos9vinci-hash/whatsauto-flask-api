@@ -50,29 +50,37 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     print("Iniciando processamento do webhook...", file=sys.stderr)
-    print("Content-Type da requisição:", request.headers.get('Content-Type'), file=sys.stderr)
-
+    
     try:
-        # Decodifica os dados brutos da requisição (espera formato 'chave=valor,chave=valor')
-        raw_data = request.data.decode('utf-8', 'ignore')
-        print("Dados brutos da requisição (decodificado):", raw_data, file=sys.stderr)
+        content_type = request.headers.get('Content-Type')
+        print("Content-Type da requisição:", content_type, file=sys.stderr)
 
-        # Parseia manualmente os dados em um dicionário
-        data = {}
-        pairs = raw_data.split(',') # Divide a string por vírgulas para obter pares
-        for pair in pairs:
-            if '=' in pair:
-                key, value = pair.split('=', 1) # Divide cada par pelo primeiro '='
-                key = key.strip() # Remove espaços em branco da chave
-                value = value.strip() # Remove espaços em branco do valor
-                data[key] = value
+        if content_type == 'application/json':
+            # Se o Content-Type é JSON, usa request.json para parsear
+            data = request.json
+            if data is None:
+                print("ERRO: Requisição JSON vazia ou inválida.", file=sys.stderr)
+                return jsonify({"error": "Corpo da requisição JSON inválido ou vazio"}), 400
+            print("Dados parseados como JSON:", data, file=sys.stderr)
+        else:
+            # Caso contrário (ex: application/x-www-form-urlencoded), tenta o parseamento manual de key=value,key=value
+            raw_data = request.data.decode('utf-8', 'ignore')
+            print("Dados brutos da requisição (decodificado, não-JSON):", raw_data, file=sys.stderr)
+            data = {}
+            pairs = raw_data.split(',')
+            for pair in pairs:
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    data[key] = value
+            print("Dados parseados manualmente (não-JSON):", data, file=sys.stderr)
 
-        print("Dados parseados manualmente:", data, file=sys.stderr)
-
-        # Extrai informações dos dados parseados
+        # Extrai informações dos dados parseados (funciona para JSON ou manual)
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        message_content = data.get("message", "Sem mensagem") # 'message' agora está vindo corretamente
+        # Pega o conteúdo da mensagem do campo 'message' ou 'Message' (para maior compatibilidade)
+        message_content = data.get("message", data.get("Message", "Sem mensagem")) 
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
 
