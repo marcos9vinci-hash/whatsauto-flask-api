@@ -68,9 +68,7 @@ def webhook():
                 value = value.strip()
                 data[key] = value
         
-        # --- NOVA LINHA DE DEBURAÇÃO ---
         print("Dicionário 'data' após parsing manual:", data, file=sys.stderr)
-        # --- FIM DA NOVA LINHA ---
 
         # Se o Content-Type for application/json, ainda podemos tentar request.json como fallback
         if content_type and content_type.startswith('application/json'):
@@ -88,6 +86,10 @@ def webhook():
         message_content = data.get("message", data.get("Message", "Sem mensagem")) # Verifica 'message' e 'Message'
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
+
+        # --- NOVA LINHA DE DEBURAÇÃO ---
+        print(f"message_content final: '{message_content}'", file=sys.stderr)
+        # --- FIM DA NOVA LINHA ---
 
         print(f"Mensagem recebida de {sender} ({phone}) no app {app_name} (Grupo: {group_name}): {message_content}", file=sys.stderr)
 
