@@ -3,6 +3,7 @@ import sys
 import os
 import json
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, unquote # Importa parse_qs e unquote
 
 # Importações para Google Calendar API
 from google.oauth2 import service_account
@@ -59,18 +60,24 @@ def webhook():
         raw_data = request.data.decode('utf-8', 'ignore')
         print("Corpo da requisição (RAW):", raw_data, file=sys.stderr)
 
-        # Adaptação para o formato app=WhatsAuto,sender=WhatsAuto app,message=Mensagem de teste
-        pairs = raw_data.split(',')
-        for pair in pairs:
-            if '=' in pair:
-                key, value = pair.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                data[key] = value
+        # --- NOVA LÓGICA DE PARSING ---
+        # Parseia a string como uma query string de URL (ex: a=1&b=2)
+        parsed_data = parse_qs(raw_data)
         
-        print("Dicionário 'data' após parsing manual:", data, file=sys.stderr)
+        # O parse_qs retorna uma lista para cada valor (ex: {'message': ['Olá']})
+        # Transformamos em um dicionário simples, pegando o primeiro valor de cada lista
+        for key, value_list in parsed_data.items():
+            if value_list: # Garante que a lista não está vazia
+                # Decodifica o valor (ex: %C3%A3 para ã)
+                data[key] = unquote(value_list[0])
+            else:
+                data[key] = "" # Caso a chave exista mas sem valor
+
+        print("Dicionário 'data' após parsing urllib.parse.qs:", data, file=sys.stderr)
+        # --- FIM DA NOVA LÓGICA ---
 
         # Se o Content-Type for application/json, ainda podemos tentar request.json como fallback
+        # (Isso é mais por robustez, pois o Watsauto parece não enviar JSON aqui)
         if content_type and content_type.startswith('application/json'):
             try:
                 json_data_from_flask = request.json
@@ -83,14 +90,13 @@ def webhook():
 
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        message_content = data.get("message", data.get("Message", "Sem mensagem")) # Verifica 'message' e 'Message'
+        # Ajustado para pegar o número diretamente se necessário, ou usar "Desconhecido"
+        phone = data.get("phone", "Desconhecido") 
+        # A mensagem agora deve vir do 'message' chave, com % decodificado
+        message_content = data.get("message", "Sem mensagem") 
         group_name = data.get("group_name", "Não em grupo")
-        phone = data.get("phone", "Desconhecido")
 
-        # --- NOVA LINHA DE DEBURAÇÃO ---
         print(f"message_content final: '{message_content}'", file=sys.stderr)
-        # --- FIM DA NOVA LINHA ---
-
         print(f"Mensagem recebida de {sender} ({phone}) no app {app_name} (Grupo: {group_name}): {message_content}", file=sys.stderr)
 
         reply_text = "" 
