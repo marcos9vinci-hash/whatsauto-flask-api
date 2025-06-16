@@ -57,10 +57,9 @@ def webhook():
         data = {}
         # Decodifica os dados brutos da requisição
         raw_data = request.data.decode('utf-8', 'ignore')
-        print("Corpo da requisição (RAW):", raw_data, file=sys.stderr) # Alterado de JSON (RAW) para apenas (RAW)
+        print("Corpo da requisição (RAW):", raw_data, file=sys.stderr)
 
         # Adaptação para o formato app=WhatsAuto,sender=WhatsAuto app,message=Mensagem de teste
-        # Independentemente do Content-Type, tentamos parsear este formato agora.
         pairs = raw_data.split(',')
         for pair in pairs:
             if '=' in pair:
@@ -69,7 +68,9 @@ def webhook():
                 value = value.strip()
                 data[key] = value
         
-        print("Dados parseados manualmente (formato chave=valor):", data, file=sys.stderr)
+        # --- NOVA LINHA DE DEBURAÇÃO ---
+        print("Dicionário 'data' após parsing manual:", data, file=sys.stderr)
+        # --- FIM DA NOVA LINHA ---
 
         # Se o Content-Type for application/json, ainda podemos tentar request.json como fallback
         if content_type and content_type.startswith('application/json'):
@@ -77,8 +78,6 @@ def webhook():
                 json_data_from_flask = request.json
                 if json_data_from_flask:
                     print("Dados parseados via request.json (se JSON válido foi enviado):", json_data_from_flask, file=sys.stderr)
-                    # Preferimos os dados do request.json se estiverem presentes e válidos
-                    # (Embora o log RAW mostre que não é JSON agora, mantemos como robustez)
                     data.update(json_data_from_flask) 
             except Exception as e_json_parse:
                 print(f"Aviso: request.json falhou ao parsear JSON, mas os dados brutos foram processados. {e_json_parse}", file=sys.stderr)
