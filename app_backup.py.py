@@ -55,20 +55,22 @@ def webhook():
         print("Content-Type da requisição:", content_type, file=sys.stderr)
 
         data = {}
-        if content_type and content_type.startswith('application/json'):
+        if content_type and content_type.startswith('application/json'): # Verifica se começa com, para pegar application/json; charset=UTF-8 também
             # --- Adicionado para depuração ---
             raw_json_data = request.data.decode('utf-8', 'ignore')
             print("Corpo da requisição JSON (RAW):", raw_json_data, file=sys.stderr)
             # --- Fim da depuração ---
 
             try:
-                data = request.json
+                data = request.json # Tenta parsear como JSON
                 if data is None:
                     print("ERRO: request.json retornou None. JSON pode estar vazio ou malformado.", file=sys.stderr)
+                    # Se request.json for None, o corpo não era um JSON válido
                     return jsonify({"error": "Corpo da requisição JSON inválido ou vazio"}), 400
                 print("Dados parseados como JSON (via request.json):", data, file=sys.stderr)
             except Exception as json_e:
                 print(f"ERRO ao parsear JSON com request.json: {json_e}", file=sys.stderr)
+                # Tenta parsear manualmente se request.json falhar, como fallback extremo
                 try:
                     data = json.loads(raw_json_data)
                     print("Dados parseados manualmente via json.loads (fallback):", data, file=sys.stderr)
@@ -76,6 +78,7 @@ def webhook():
                     print(f"ERRO CRÍTICO: Falha no parseamento JSON automático e manual: {fallback_e}", file=sys.stderr)
                     return jsonify({"error": "Corpo da requisição JSON inválido"}), 400
         else:
+            # Caso contrário (ex: application/x-www-form-urlencoded), tenta o parseamento manual de key=value,key=value
             raw_data = request.data.decode('utf-8', 'ignore')
             print("Dados brutos da requisição (decodificado, não-JSON):", raw_data, file=sys.stderr)
             pairs = raw_data.split(',')
@@ -87,9 +90,10 @@ def webhook():
                     data[key] = value
             print("Dados parseados manualmente (não-JSON):", data, file=sys.stderr)
 
+        # Extrai informações dos dados parseados
         app_name = data.get("app", "Desconhecido")
         sender = data.get("sender", "Desconhecido")
-        message_content = data.get("message", data.get("Message", "Sem mensagem"))
+        message_content = data.get("message", data.get("Message", "Sem mensagem")) # Tenta 'message' ou 'Message'
         group_name = data.get("group_name", "Não em grupo")
         phone = data.get("phone", "Desconhecido")
 
@@ -97,6 +101,7 @@ def webhook():
 
         reply_text = "" 
 
+        # --- Lógica de Resposta e Agendamento ---
         if "agendar" in message_content.lower() and "reuniao" in message_content.lower():
             if calendar_service:
                 try:
