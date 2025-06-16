@@ -61,3 +61,4 @@ def webhook():
     except Exception as e:
         print(f"ERRO CRÍTICO NO WEBHOOK (exceção geral): {e}", file=sys.stderr)
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
+    # Isso é um comentário para forçar um novo deploy
